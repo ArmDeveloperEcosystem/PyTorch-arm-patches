@@ -1,0 +1,89 @@
+From 8b72787f5d694624c45c20e2895fe15a69f4a908 Mon Sep 17 00:00:00 2001
+From: Nikhil Gupta <nikhil.gupta2@arm.com>
+Date: Wed, 14 Aug 2024 23:11:11 +0000
+Subject: [PATCH 1/1] [Feat]: Enable int4 quantized models to work with pytorch
+ kleidiai
+
+Command: python3 torchchat.py export llama2 --output-dso-path exportedModels/llama2.so --quantize config/data/aarch64_cpu_channelwise.json --device cpu
+
+Description:
+1. model quantization comes from torch ao
+2. the quantized model can be dumped using dso export and then
+   inferenced
+
+Signed-off-by: Nikhil Gupta <nikhil.gupta2@arm.com>
+---
+ config/data/aarch64_cpu_channelwise.json |  8 ++++++++
+ generate.py                              | 20 ++++++++++++++++----
+ quantization/quantize.py                 |  2 +-
+ 3 files changed, 25 insertions(+), 5 deletions(-)
+ create mode 100644 config/data/aarch64_cpu_channelwise.json
+
+diff --git a/config/data/aarch64_cpu_channelwise.json b/config/data/aarch64_cpu_channelwise.json
+new file mode 100644
+index 0000000..55383ca
+--- /dev/null
++++ b/config/data/aarch64_cpu_channelwise.json
+@@ -0,0 +1,8 @@
++{
++    "executor": {"accelerator": "cpu"},
++    "precision": {"dtype": "fp32"},
++    "linear:int4": {
++        "groupsize": 0,
++	"scheme": "symmetric_channelwise"
++    }
++}
+diff --git a/generate.py b/generate.py
+index 5920bd6..0d954ea 100644
+--- a/generate.py
++++ b/generate.py
+@@ -558,7 +558,6 @@ class Generator:
+             ):
+                 generated_tokens.append(generated_token)
+                 yield generated_token, None
+-
+             seq[T + 1 : T + 1 + len(generated_tokens)] = torch.cat(generated_tokens)
+             seq = seq[
+                 : T + 1 + len(generated_tokens)
+@@ -802,9 +801,22 @@ class Generator:
+                 # Don't continue here.... because we need to report and reset
+                 # continue
+ 
+-            logging.info(
+-                f"\nTime for inference {i + 1}: {t:.02f} sec total, time to first token {aggregate_metrics.get('time_to_first_token', -1.0):.02f} sec with {'sequential' if generator_args.sequential_prefill else 'parallel'} prefill, {num_tokens_generated} tokens, {tokens_sec:.02f} tokens/sec, {1000 / tokens_sec:.02f} ms/token"
+-            )
++
++            generation_time = t - aggregate_metrics.get('time_to_first_token', -1.0)
++            prefill_time = aggregate_metrics.get('time_to_first_token', -1.0)
++            prefill_tokens = encoded.size(0)
++            decode_speed = (num_tokens_generated  + 1)/ generation_time # added 1 for eos token
++            prefill_speed = encoded.size(0) / prefill_time
++            logging.info("\n=====================================================================")
++            logging.info(f"Input tokens        :   {prefill_tokens}")
++            logging.info(f"Generated tokens    :   {num_tokens_generated+1}")
++            logging.info(f"Time to first token :   {round(prefill_time,2)} s")
++            logging.info(f"Prefill Speed       :   {round(prefill_speed,2)} t/s")
++            logging.info(f"Generation  Speed   :   {round(decode_speed,2)} t/s")
++            logging.info("=====================================================================\n")
++            # logging.info(
++            #     f"\nTime for inference {i + 1}: {t:.02f} sec total, time to first token {aggregate_metrics.get('time_to_first_token', -1.0):.02f} sec with {'sequential' if generator_args.sequential_prefill else 'parallel'} prefill, {num_tokens_generated} tokens, {tokens_sec:.02f} tokens/sec, {1000 / tokens_sec:.02f} ms/token"
++            # )
+             logging.info(
+                 f"Bandwidth achieved: {model_size * tokens_sec / 1e9:.02f} GB/s"
+             )
+diff --git a/quantization/quantize.py b/quantization/quantize.py
+index c72ef2a..7e95f6d 100644
+--- a/quantization/quantize.py
++++ b/quantization/quantize.py
+@@ -86,7 +86,7 @@ def quantize_model(model: nn.Module, device, quantize_options, tokenizer=None):
+             try:
+                 # Easier to ask forgiveness than permission
+                 quant_handler = ao_quantizer_class_dict[quantizer](
+-                    groupsize=q_kwargs["groupsize"], device=device, precision=precision
++                    groupsize=q_kwargs["groupsize"], device=device, precision=precision, scheme = q_kwargs.get("scheme", None)
+                 )
+             except TypeError as e:
+                 if "unexpected keyword argument 'device'" in str(e):
+-- 
+2.34.1
+
