@@ -1,0 +1,27 @@
+From 036e37b0d6775a7481f84993a986255a1ece8e2d Mon Sep 17 00:00:00 2001
+From: nobelchowdary <nobelchowdary@gmail.com>
+Date: Fri, 13 Sep 2024 08:32:23 -0500
+Subject: [PATCH] modified generate.py for cli and browser
+
+---
+ generate.py | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/generate.py b/generate.py
+index 3f0c02b..15b8759 100644
+--- a/generate.py
++++ b/generate.py
+@@ -50,6 +50,10 @@ class Llama3ChatFormatter(_ChatFormatter):
+     def encode_header(self, role) -> List[int]:
+         tokens = []
+         tokens.append(self.tokenizer.special_tokens["<|start_header_id|>"])
++            
++        if not isinstance(role, str):		# Ensure `role` is a string
++            role = str(role)  			# Convert to string if possible
++
+         tokens.extend(self.tokenizer.encode(role, bos=False, eos=False))
+         tokens.append(self.tokenizer.special_tokens["<|end_header_id|>"])
+         tokens.extend(self.tokenizer.encode("\n\n", bos=False, eos=False))
+-- 
+2.39.3 (Apple Git-146)
+
